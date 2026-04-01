@@ -1,293 +1,496 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TREBEL Review Bot — Architecture</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Montserrat', sans-serif; background: #fff; padding: 40px 48px 48px; max-width: 1000px; margin: 0 auto; }
-  .section-label { font-size: 9px; font-weight: 700; letter-spacing: 3px; color: #999; margin-bottom: 10px; text-transform: uppercase; }
-  .pipeline { display: flex; align-items: stretch; gap: 0; margin-bottom: 32px; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
-  .pipeline-step { flex: 1; position: relative; }
-  .pipeline-step:not(:last-child)::after { content: ''; position: absolute; right: -13px; top: 50%; transform: translateY(-50%); width: 0; height: 0; border-top: 10px solid transparent; border-bottom: 10px solid transparent; border-left: 13px solid #fff; z-index: 10; }
-  .pipeline-step:not(:last-child)::before { content: ''; position: absolute; right: -14px; top: 50%; transform: translateY(-50%); width: 0; height: 0; border-top: 11px solid transparent; border-bottom: 11px solid transparent; border-left: 14px solid #e8e8e8; z-index: 9; }
-  .step-box { width: 100%; padding: 14px 8px 16px; font-size: 10px; color: #555; text-align: center; min-height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; }
-  .step-box .step-num { width: 20px; height: 20px; border-radius: 50%; background: #000; color: #fdf203; font-size: 9px; font-weight: 700; line-height: 20px; text-align: center; margin-bottom: 4px; flex-shrink: 0; }
-  .step-box .step-title { font-size: 11px; font-weight: 700; color: #000; line-height: 1.2; }
-  .step-box .step-sub { font-size: 9px; color: #666; line-height: 1.4; }
-  .step-slack { background: #fdf203; } .step-render { background: #f5f5f5; } .step-stores { background: #f0f7f0; } .step-db { background: #f3f0fa; } .step-ai { background: #fff8f0; } .step-slack2 { background: #fdf203; } .step-agent { background: #f5f5f5; } .step-reply { background: #f0f7f0; }
-  .flow { margin-bottom: 32px; }
-  .flow-row { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 0; position: relative; }
-  .flow-row:not(:last-child)::before { content: ''; position: absolute; left: 20px; top: 40px; bottom: -1px; width: 2px; background: #efefef; z-index: 0; }
-  .flow-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; position: relative; z-index: 1; border: 2px solid #fff; box-shadow: 0 0 0 2px #e8e8e8; color: #000; }
-  .flow-content { flex: 1; padding-bottom: 22px; }
-  .flow-title { font-size: 12px; font-weight: 700; color: #000; margin-bottom: 3px; line-height: 1.3; }
-  .flow-desc { font-size: 10px; color: #777; line-height: 1.6; }
-  .flow-code { display: inline-block; margin-top: 5px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 10px; font-family: 'Courier New', monospace; font-size: 10px; color: #333; }
-  .flow-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; }
-  .flow-tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 9px; font-weight: 700; }
-  .tag-gp { background: #e8f5e9; color: #2e7d32; } .tag-as { background: #e3f2fd; color: #1565c0; } .tag-db { background: #f3e5f5; color: #6a1b9a; } .tag-ai { background: #fff3e0; color: #e65100; } .tag-sl { background: #fdf203; color: #000; } .tag-ok { background: #e8f5e9; color: #2e7d32; } .tag-warn { background: #fff8e1; color: #e65100; } .tag-gray { background: #f5f5f5; color: #555; border: 1px solid #ddd; } .tag-rej { background: #fce8e8; color: #c62828; } .tag-kb { background: #fffde7; color: #000; border: 1px solid #f0e000; } .tag-edit { background: #e3f2fd; color: #1565c0; } .tag-new { background: #000; color: #fdf203; }
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-  .info-card { border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
-  .info-table { width: 100%; border-collapse: collapse; }
-  .info-table th { font-size: 9px; font-weight: 700; color: #bbb; padding: 8px 14px; text-align: left; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
-  .info-table td { font-size: 10px; color: #555; padding: 9px 14px; border-bottom: 1px solid #f8f8f8; vertical-align: middle; }
-  .info-table tr:last-child td { border-bottom: none; }
-  .info-table td:first-child { font-weight: 600; color: #000; }
-  .info-table td.mono { font-family: 'Courier New', monospace; font-size: 9px; font-weight: 700; background: #fffde7; color: #000; }
-  .pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 9px; font-weight: 700; }
-  .pill-black { background: #000; color: #fdf203; } .pill-green { background: #34a853; color: #fff; } .pill-blue { background: #0070c9; color: #fff; } .pill-neon { background: #00c9a7; color: #fff; } .pill-orange { background: #d97b2b; color: #fff; } .pill-purple { background: #4a1d96; color: #ede9fe; } .pill-gh { background: #24292e; color: #fff; } .pill-free { background: #e8f5e9; color: #2e7d32; } .pill-warn { background: #fff8e1; color: #e65100; } .pill-cron { background: #f3e5f5; color: #6a1b9a; }
-  .yellow-box { background: #fffde7; border: 1px solid #f0e000; border-radius: 8px; padding: 14px 16px; margin-top: 14px; }
-  .yellow-box .yb-title { font-size: 11px; font-weight: 700; color: #000; margin-bottom: 5px; }
-  .yellow-box .yb-desc { font-size: 10px; color: #777; line-height: 1.6; }
-  .scope-box { background: #f9f9f9; border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px 16px; margin-top: 14px; }
-  .scope-box .yb-title { font-size: 11px; font-weight: 700; color: #000; margin-bottom: 8px; }
-  .scope-list { display: flex; flex-wrap: wrap; gap: 5px; }
-  .scope-pill { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 9px; font-weight: 700; background: #f0f0f0; color: #555; border: 1px solid #ddd; }
-  .scope-pill-new { background: #000; color: #fdf203; border-color: #000; }
-  .divider { border: none; border-top: 1px solid #f0f0f0; margin: 24px 0; }
-  .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
-  .footer-left { font-size: 9px; color: #ccc; }
-  .footer-right { font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #000; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#111118; --surface:#1a1a2e; --surface2:#22223a; --border:#2e2e4a;
+    --yellow:#fdf203; --teal:#1D9E75; --teal-dim:#085041;
+    --amber:#EF9F27; --amber-dim:#3d2506;
+    --purple:#7F77DD; --purple-dim:#3C3489;
+    --slate:#718096; --slate-dim:#2d3748;
+    --text:#e8e8f0; --muted:#8888aa; --green-api:#3ecfa0;
+  }
+  body { font-family:'Montserrat',sans-serif; background:var(--bg); color:var(--text); padding:56px 40px 100px; max-width:880px; margin:0 auto; line-height:1.6; }
+  .page-header { margin-bottom:64px; }
+  .page-header .eyebrow { font-size:11px; font-weight:600; letter-spacing:0.14em; color:var(--yellow); text-transform:uppercase; margin-bottom:12px; }
+  .page-header h1 { font-size:30px; font-weight:900; color:#fff; margin-bottom:10px; }
+  .page-header p { font-size:13px; color:var(--muted); }
+  .section-label { font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:var(--yellow); margin-bottom:24px; display:flex; align-items:center; gap:12px; }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+  .diagram-wrap { background:var(--surface); border-radius:12px; padding:8px; margin-bottom:64px; overflow-x:auto; }
+  .diagram-wrap svg { display:block; width:100%; }
+  .divider { border:none; border-top:1px solid var(--border); margin:64px 0; }
+  .walk-intro { font-size:13px; color:var(--muted); margin-bottom:40px; }
+  .step { display:flex; gap:24px; margin-bottom:40px; padding-bottom:40px; border-bottom:1px solid var(--border); }
+  .step:last-child { border-bottom:none; }
+  .step-num { flex-shrink:0; width:34px; height:34px; border-radius:50%; background:var(--yellow); color:#111; font-size:13px; font-weight:900; display:flex; align-items:center; justify-content:center; margin-top:2px; }
+  .step-body h3 { font-size:15px; font-weight:700; color:#fff; margin-bottom:8px; }
+  .step-body p { font-size:13px; color:var(--muted); margin-bottom:12px; }
+  .code-block { background:#0d0d18; border:1px solid var(--border); border-radius:6px; padding:14px 18px; font-family:'Courier New',monospace; font-size:12px; color:var(--yellow); margin:12px 0; }
+  .tag-row { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  .tag { font-size:11px; font-weight:600; padding:4px 11px; border-radius:4px; border:1px solid; }
+  .tag-teal  { color:var(--teal);   border-color:var(--teal-dim);   background:rgba(29,158,117,0.08); }
+  .tag-amber { color:var(--amber);  border-color:var(--amber-dim);  background:rgba(239,159,39,0.08); }
+  .tag-purple{ color:var(--purple); border-color:var(--purple-dim); background:rgba(127,119,221,0.08); }
+  .tag-slate { color:#a0aec0;       border-color:var(--slate-dim);  background:rgba(45,55,72,0.5); }
+  .tag-green { color:var(--green-api); border-color:#0F6E56;        background:rgba(62,207,160,0.08); }
+  .action-row { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  .action { font-size:12px; font-weight:600; padding:7px 16px; border-radius:6px; border:1px solid; }
+  .action-approve { color:#9FE1CB; border-color:var(--teal);  background:rgba(8,80,65,0.5); }
+  .action-edit    { color:#B5D4F4; border-color:#378ADD;       background:rgba(12,68,124,0.5); }
+  /* INFRA GRID */
+  .infra-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; margin-bottom:64px; }
+  .infra-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px 22px; }
+  .infra-card .layer { font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+  .infra-card .tech  { font-size:14px; font-weight:700; color:#fff; margin-bottom:4px; }
+  .infra-card .detail{ font-size:12px; color:var(--muted); margin-bottom:12px; }
+  .infra-card .cost  { display:inline-block; font-size:11px; font-weight:700; padding:3px 10px; border-radius:4px; }
+  .cost-free { background:rgba(29,158,117,0.12); color:var(--teal);  border:1px solid var(--teal-dim); }
+  .cost-paid { background:rgba(239,159,39,0.12);  color:var(--amber); border:1px solid var(--amber-dim); }
+  /* KB */
+  .kb-block { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:22px 24px; font-size:13px; color:var(--muted); margin-bottom:64px; }
+  .kb-block strong { color:#fff; display:block; margin-bottom:6px; font-size:14px; }
+  /* SCOPES */
+  .scope-section { margin-bottom:64px; }
+  .scope-grid { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; }
+  .scope-pill { font-size:11px; font-family:'Courier New',monospace; padding:7px 14px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--muted); }
+  .scope-pill.new { border-color:var(--purple-dim); color:var(--purple); background:rgba(60,52,137,0.15); }
+  .scope-note { font-size:12px; color:var(--muted); }
+  .scope-note span { color:var(--purple); }
+  /* DB TABLE */
+  .db-section { margin-bottom:64px; }
+  .db-table { width:100%; border-collapse:collapse; }
+  .db-table thead th { text-align:left; font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); padding:0 0 14px; border-bottom:1px solid var(--border); }
+  .db-table tbody tr { border-bottom:1px solid #1e1e30; }
+  .db-table tbody tr:last-child { border-bottom:none; }
+  .db-table td { padding:18px 0; vertical-align:top; }
+  .db-table td:first-child { font-family:'Courier New',monospace; font-size:13px; font-weight:700; color:var(--yellow); width:190px; padding-right:28px; }
+  .db-table td:last-child { font-size:13px; color:#a0aec0; }
+  /* API TABLE */
+  .api-table { width:100%; border-collapse:collapse; margin-bottom:64px; }
+  .api-table thead th { text-align:left; font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); padding:0 16px 14px 0; border-bottom:1px solid var(--border); }
+  .api-table tbody tr { border-bottom:1px solid #1e1e30; }
+  .api-table tbody tr:last-child { border-bottom:none; }
+  .api-table td { padding:18px 16px 18px 0; font-size:13px; color:#a0aec0; vertical-align:top; }
+  .api-table td:first-child { color:#fff; font-weight:700; }
+  /* URLS */
+  .url-grid { display:flex; flex-direction:column; gap:10px; margin-bottom:64px; }
+  .url-row { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:var(--surface); border:1px solid var(--border); border-radius:8px; font-size:13px; }
+  .url-row span { color:var(--muted); }
+  .url-row a { color:var(--yellow); text-decoration:none; font-weight:600; }
+  .url-row a:hover { text-decoration:underline; }
+  /* FOOTER */
+  .page-footer { padding-top:32px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted); }
+  .page-footer strong { color:var(--yellow); font-weight:900; font-size:13px; }
 </style>
 </head>
 <body>
 
-<div class="section-label">Data pipeline — end to end</div>
-<div class="pipeline">
-  <div class="pipeline-step"><div class="step-box step-slack"><div class="step-num">1</div><div class="step-title">Slack</div><div class="step-sub">/fetch-reviews<br>command typed</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-render"><div class="step-num">2</div><div class="step-title">Render server</div><div class="step-sub">Receives command,<br>parses params</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-stores"><div class="step-num">3</div><div class="step-title">App stores</div><div class="step-sub">Server fetches<br>reviews via APIs</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-db"><div class="step-num">4</div><div class="step-title">Neon DB</div><div class="step-sub">Filters already-<br>answered reviews</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-ai"><div class="step-num">5</div><div class="step-title">Claude API</div><div class="step-sub">Generates 1 AI<br>draft per review</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-slack2"><div class="step-num">6</div><div class="step-title">Slack post</div><div class="step-sub">Review + draft<br>+ 3 actions</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-agent"><div class="step-num">7</div><div class="step-title">Agent decides</div><div class="step-sub">Approve, edit,<br>or reject</div></div></div>
-  <div class="pipeline-step"><div class="step-box step-reply"><div class="step-num">8</div><div class="step-title">Reply sent</div><div class="step-sub">Posted to store<br>via API</div></div></div>
+<header class="page-header">
+  <div class="eyebrow">TREBEL Review Bot</div>
+  <h1>System Architecture</h1>
+  <p>Both stores live end to end · April 2026</p>
+</header>
+
+<!-- 1. HIGH-LEVEL -->
+<div class="section-label">High-level architecture</div>
+<div class="diagram-wrap">
+<svg viewBox="0 0 680 340" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="30" y="60" width="150" height="60" rx="8" fill="#063530" stroke="#1D9E75" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="13" font-weight="700" fill="#9FE1CB" x="105" y="85" text-anchor="middle">Slack</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="105" y="103" text-anchor="middle">#app-reviews-ai</text>
+<rect x="265" y="60" width="150" height="60" rx="8" fill="#3d2506" stroke="#EF9F27" stroke-width="1.5"/>
+<text font-family="Montserrat,sans-serif" font-size="13" font-weight="700" fill="#FAC775" x="340" y="85" text-anchor="middle">Render</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="340" y="103" text-anchor="middle">Node.js · Express</text>
+<rect x="500" y="60" width="150" height="60" rx="8" fill="#085041" stroke="#1D9E75" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="13" font-weight="700" fill="#9FE1CB" x="575" y="85" text-anchor="middle">App Stores</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="575" y="103" text-anchor="middle">Google Play · App Store</text>
+<line x1="180" y1="82" x2="263" y2="82" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="221" y="76" text-anchor="middle">fetch · approve</text>
+<line x1="263" y1="98" x2="180" y2="98" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="221" y="112" text-anchor="middle">post card</text>
+<line x1="415" y1="82" x2="498" y2="82" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="456" y="76" text-anchor="middle">fetch · post reply</text>
+<line x1="498" y1="98" x2="415" y2="98" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="456" y="112" text-anchor="middle">reviews</text>
+<rect x="140" y="230" width="150" height="60" rx="8" fill="#3C3489" stroke="#7F77DD" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="13" font-weight="700" fill="#CECBF6" x="215" y="255" text-anchor="middle">Anthropic</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#AFA9EC" x="215" y="273" text-anchor="middle">Claude Sonnet</text>
+<rect x="390" y="230" width="150" height="60" rx="8" fill="#2d3748" stroke="#718096" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="13" font-weight="700" fill="#e2e8f0" x="465" y="255" text-anchor="middle">Neon</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#a0aec0" x="465" y="273" text-anchor="middle">Postgres DB</text>
+<path d="M305 120 L305 180 L215 180 L215 228" fill="none" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="254" y="175" text-anchor="middle">review text</text>
+<path d="M230 228 L230 196 L340 196 L340 120" fill="none" stroke="#7F77DD" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#AFA9EC" x="292" y="210" text-anchor="middle">draft reply</text>
+<path d="M370 120 L370 180 L465 180 L465 228" fill="none" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="424" y="175" text-anchor="middle">write</text>
+<path d="M450 228 L450 196 L355 196 L355 120" fill="none" stroke="#8888bb" stroke-width="1.5" marker-end="url(#a)"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#c0c0e0" x="400" y="210" text-anchor="middle">read</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#3a4a5a" x="340" y="325" text-anchor="middle">TREBEL Review Bot · high-level architecture · April 2026</text>
+</svg>
+</div>
+
+<!-- 2. DETAILED PIPELINE -->
+<div class="section-label">Full data pipeline</div>
+<div class="diagram-wrap">
+<svg viewBox="0 0 720 1260" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<!-- LEGEND -->
+<rect x="530" y="440" width="178" height="132" rx="8" fill="#2a2a45" stroke="#5a5a88" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text font-family="Montserrat,sans-serif" font-size="11" font-weight="600" fill="#c0c0e0" x="619" y="460" text-anchor="middle">legend</text>
+<rect x="542" y="472" width="10" height="10" rx="2" fill="#7F77DD"/><text font-family="Montserrat,sans-serif" font-size="10" fill="#c0c0e0" x="558" y="481">AI</text>
+<rect x="542" y="492" width="10" height="10" rx="2" fill="#378ADD"/><text font-family="Montserrat,sans-serif" font-size="10" fill="#c0c0e0" x="558" y="501">Dev tools / source</text>
+<rect x="542" y="512" width="10" height="10" rx="2" fill="#EF9F27"/><text font-family="Montserrat,sans-serif" font-size="10" fill="#c0c0e0" x="558" y="521">Server / compute</text>
+<rect x="542" y="532" width="10" height="10" rx="2" fill="#1D9E75"/><text font-family="Montserrat,sans-serif" font-size="10" fill="#c0c0e0" x="558" y="541">Store APIs</text>
+<rect x="542" y="552" width="10" height="10" rx="2" fill="#1D9E75" opacity="0.45"/><text font-family="Montserrat,sans-serif" font-size="10" fill="#c0c0e0" x="558" y="561">Slack / human</text>
+<!-- DEV LAYER -->
+<rect x="20" y="24" width="106" height="52" rx="8" fill="#3C3489" stroke="#7F77DD" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#CECBF6" x="73" y="46" text-anchor="middle">Claude</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#AFA9EC" x="73" y="64" text-anchor="middle">AI design</text>
+<line x1="126" y1="50" x2="148" y2="50" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<rect x="150" y="24" width="120" height="52" rx="8" fill="#0C447C" stroke="#378ADD" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#B5D4F4" x="210" y="46" text-anchor="middle">Claude Code</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#85B7EB" x="210" y="64" text-anchor="middle">VS Code · dev agent</text>
+<line x1="270" y1="50" x2="292" y2="50" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<rect x="294" y="24" width="110" height="52" rx="8" fill="#0C447C" stroke="#378ADD" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#B5D4F4" x="349" y="46" text-anchor="middle">GitHub</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#85B7EB" x="349" y="64" text-anchor="middle">trebel-review-bot</text>
+<line x1="404" y1="50" x2="426" y2="50" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#7070a0" x="415" y="42" text-anchor="middle">push</text>
+<rect x="428" y="24" width="100" height="52" rx="8" fill="#633806" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#FAC775" x="478" y="46" text-anchor="middle">Render</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="478" y="64" text-anchor="middle">auto-deploys</text>
+<line x1="20" y1="92" x2="540" y2="92" stroke="#2e2e4a" stroke-width="0.5" stroke-dasharray="3 3"/>
+<!-- CS AGENT -->
+<rect x="210" y="104" width="240" height="52" rx="8" fill="#085041" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="330" y="126" text-anchor="middle">CS agent</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="144" text-anchor="middle">types /fetch-reviews in Slack</text>
+<line x1="330" y1="156" x2="330" y2="178" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- PARAMS -->
+<rect x="210" y="180" width="240" height="96" rx="8" fill="#3d2506" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#FAC775" x="330" y="202" text-anchor="middle">Slash command params</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="330" y="220" text-anchor="middle">store: google_play / app_store / both</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="330" y="236" text-anchor="middle">ratings: 1,2,3,4,5 · days: lookback</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#FAC775" x="330" y="252" text-anchor="middle">e.g. country: mx · max: 2</text>
+<line x1="330" y1="276" x2="330" y2="298" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#7070a0" x="344" y="290">HTTP POST /slack/commands</text>
+<!-- RENDER SERVER 1 -->
+<rect x="210" y="300" width="240" height="52" rx="8" fill="#3d2506" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#FAC775" x="330" y="322" text-anchor="middle">Render server</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="330" y="340" text-anchor="middle">Node.js · parses params</text>
+<line x1="210" y1="326" x2="152" y2="326" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<line x1="450" y1="326" x2="488" y2="326" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- GOOGLE PLAY -->
+<rect x="20" y="294" width="130" height="72" rx="8" fill="#085041" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="85" y="316" text-anchor="middle">Google Play</text>
+<line x1="30" y1="324" x2="140" y2="324" stroke="#0F6E56" stroke-width="0.5" opacity="0.6"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#3ecfa0" x="85" y="338" text-anchor="middle">GET 200 req/hr</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#3ecfa0" x="85" y="352" text-anchor="middle">POST 2,000 req/day</text>
+<!-- APPLE APP STORE -->
+<rect x="490" y="294" width="170" height="72" rx="8" fill="#085041" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="575" y="316" text-anchor="middle">Apple App Store</text>
+<line x1="500" y1="324" x2="650" y2="324" stroke="#0F6E56" stroke-width="0.5" opacity="0.6"/>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#3ecfa0" x="575" y="338" text-anchor="middle">GET ~3,600 req/hr</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#3ecfa0" x="575" y="352" text-anchor="middle">POST shared GET pool</text>
+<path d="M85 366 L85 412 L328 412" fill="none" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<path d="M575 366 L575 412 L332 412" fill="none" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#7070a0" x="330" y="408" text-anchor="middle">unanswered only</text>
+<!-- SAVE TO DB -->
+<rect x="210" y="418" width="240" height="52" rx="8" fill="#2d3748" stroke="#718096" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#e2e8f0" x="330" y="440" text-anchor="middle">Save reviews to DB</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#a0aec0" x="330" y="458" text-anchor="middle">reviews · replied = false</text>
+<line x1="330" y1="470" x2="330" y2="492" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- ANTHROPIC -->
+<rect x="210" y="494" width="240" height="52" rx="8" fill="#3C3489" stroke="#7F77DD" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#CECBF6" x="330" y="516" text-anchor="middle">Anthropic Claude</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#AFA9EC" x="330" y="534" text-anchor="middle">draft · lang match · 350 char cap</text>
+<rect x="20" y="494" width="150" height="52" rx="8" fill="#3C3489" stroke="#7F77DD" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#CECBF6" x="95" y="516" text-anchor="middle">knowledge-base</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#AFA9EC" x="95" y="534" text-anchor="middle">tone · rules · brand</text>
+<line x1="170" y1="520" x2="208" y2="520" stroke="#7F77DD" stroke-width="1.5" marker-end="url(#b)"/>
+<line x1="330" y1="546" x2="330" y2="568" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#7070a0" x="344" y="560">draft in Slack payload only</text>
+<!-- SLACK CARD POSTED -->
+<rect x="210" y="570" width="240" height="52" rx="8" fill="#063530" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="330" y="592" text-anchor="middle">Slack card posted</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="610" text-anchor="middle">#app-reviews-ai · draft in payload</text>
+<rect x="20" y="570" width="150" height="52" rx="8" fill="#2d3748" stroke="#718096" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#e2e8f0" x="95" y="592" text-anchor="middle">slack_messages</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#a0aec0" x="95" y="610" text-anchor="middle">msg ID for routing</text>
+<line x1="170" y1="596" x2="208" y2="596" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<line x1="330" y1="622" x2="330" y2="644" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- AGENT DECIDES -->
+<rect x="210" y="646" width="240" height="52" rx="8" fill="#063530" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="330" y="668" text-anchor="middle">Agent decides</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="686" text-anchor="middle">Approve · Edit via modal</text>
+<line x1="330" y1="698" x2="330" y2="720" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#7070a0" x="344" y="712">POST /slack/actions</text>
+<!-- RENDER SERVER 2 -->
+<rect x="210" y="722" width="240" height="64" rx="8" fill="#3d2506" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#FAC775" x="330" y="746" text-anchor="middle">Render server</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="330" y="764" text-anchor="middle">looks up review + msg ID</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#EF9F27" x="330" y="780" text-anchor="middle">from slack_messages</text>
+<line x1="330" y1="786" x2="330" y2="808" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- REPLY TO STORE -->
+<rect x="210" y="810" width="240" height="64" rx="8" fill="#085041" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="330" y="832" text-anchor="middle">Reply posted to store</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="850" text-anchor="middle">Google Play: instant</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="866" text-anchor="middle">Apple App Store: 2–24 hrs</text>
+<line x1="330" y1="874" x2="330" y2="896" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- DB UPDATE -->
+<rect x="210" y="898" width="240" height="64" rx="8" fill="#2d3748" stroke="#718096" stroke-width="1"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#e2e8f0" x="330" y="920" text-anchor="middle">reviews table updated</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#a0aec0" x="330" y="938" text-anchor="middle">replied=true · replied_by · replied_at</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#a0aec0" x="330" y="954" text-anchor="middle">sent_response = exact text sent</text>
+<line x1="330" y1="962" x2="330" y2="984" stroke="#8888bb" stroke-width="1.5" marker-end="url(#b)"/>
+<!-- SLACK CARD UPDATED -->
+<rect x="210" y="986" width="240" height="52" rx="8" fill="#063530" stroke="#1D9E75" stroke-width="0.5"/>
+<text font-family="Montserrat,sans-serif" font-size="12" font-weight="700" fill="#9FE1CB" x="330" y="1008" text-anchor="middle">Slack card updated</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#5DCAA5" x="330" y="1026" text-anchor="middle">✅ Sent by @user · msg ID used</text>
+<!-- DB SCHEMA — 4 TABLES -->
+<rect x="20" y="1062" width="680" height="172" rx="10" fill="#1e2433" stroke="#4a5568" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text font-family="Montserrat,sans-serif" font-size="11" font-weight="600" fill="#90a0b8" x="40" y="1082">DB schema · Neon Postgres · 4 tables</text>
+<rect x="30" y="1092" width="148" height="120" rx="6" fill="#2d3748" stroke="#718096" stroke-width="0.8"/>
+<text font-family="Montserrat,sans-serif" font-size="10" font-weight="700" fill="#e2e8f0" x="104" y="1112" text-anchor="middle">reviews</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="104" y="1128" text-anchor="middle">id · store · rating</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="104" y="1143" text-anchor="middle">replied · replied_by</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="104" y="1158" text-anchor="middle">replied_at</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="104" y="1173" text-anchor="middle">sent_response</text>
+<rect x="188" y="1092" width="148" height="120" rx="6" fill="#2d3748" stroke="#718096" stroke-width="0.8"/>
+<text font-family="Montserrat,sans-serif" font-size="10" font-weight="700" fill="#e2e8f0" x="262" y="1112" text-anchor="middle">response_drafts</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="262" y="1128" text-anchor="middle">id · review_id (FK)</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="262" y="1143" text-anchor="middle">draft_text</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="262" y="1158" text-anchor="middle">status</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="262" y="1173" text-anchor="middle">created_at</text>
+<rect x="346" y="1092" width="148" height="120" rx="6" fill="#2d3748" stroke="#718096" stroke-width="0.8"/>
+<text font-family="Montserrat,sans-serif" font-size="10" font-weight="700" fill="#e2e8f0" x="420" y="1112" text-anchor="middle">slack_messages</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="420" y="1128" text-anchor="middle">id · review_id (FK)</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="420" y="1143" text-anchor="middle">slack_message_id</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="420" y="1158" text-anchor="middle">channel_id</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="420" y="1173" text-anchor="middle">created_at</text>
+<rect x="504" y="1092" width="176" height="120" rx="6" fill="#2d3748" stroke="#718096" stroke-width="0.8"/>
+<text font-family="Montserrat,sans-serif" font-size="10" font-weight="700" fill="#e2e8f0" x="592" y="1112" text-anchor="middle">sent_replies</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="592" y="1128" text-anchor="middle">id · review_id (FK)</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="592" y="1143" text-anchor="middle">reply_text · sent_by</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="592" y="1158" text-anchor="middle">sent_at · edited</text>
+<text font-family="Montserrat,sans-serif" font-size="9" fill="#a0aec0" x="592" y="1173" text-anchor="middle">store · review_id_ext</text>
+<text font-family="Montserrat,sans-serif" font-size="10" fill="#3a4a5a" x="360" y="1248" text-anchor="middle">TREBEL Review Bot · full data pipeline · April 2026</text>
+</svg>
 </div>
 
 <hr class="divider">
 
-<div class="section-label">Detailed step-by-step flow</div>
-<div class="flow">
+<!-- 3. WALKTHROUGH -->
+<div class="section-label">Step-by-step walkthrough</div>
+<p class="walk-intro">End-to-end flow from slash command to reply posted in the store.</p>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#fdf203;">1</div>
-    <div class="flow-content">
-      <div class="flow-title">CX agent runs /fetch-reviews in Slack</div>
-      <div class="flow-desc">Command typed in #app-reviews-ai channel with parameters to control what reviews to fetch.</div>
-      <div class="flow-code">/fetch-reviews ratings:1,2 days:7 store:both country:mx max:10</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-gray">ratings — star filter</span>
-        <span class="flow-tag tag-gray">days — lookback (keep ≤30)</span>
-        <span class="flow-tag tag-gray">store — google_play / app_store / both</span>
-        <span class="flow-tag tag-gray">country — ISO code, comma-separated</span>
-        <span class="flow-tag tag-gray">max — 1–100, default 20</span>
-      </div>
+<div class="step">
+  <div class="step-num">1</div>
+  <div class="step-body">
+    <h3>CX agent runs /fetch-reviews in Slack</h3>
+    <p>Command typed in #app-reviews-ai with parameters controlling what reviews to fetch.</p>
+    <div class="code-block">/fetch-reviews store:both country:mx ratings:1,2 days:7 max:2</div>
+    <div class="tag-row">
+      <span class="tag tag-amber">ratings — star filter</span>
+      <span class="tag tag-amber">days — lookback (keep ≤30)</span>
+      <span class="tag tag-amber">store — google_play / app_store / both</span>
+      <span class="tag tag-amber">country — ISO code, comma-separated</span>
+      <span class="tag tag-amber">max — 1–100, default 20</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#f5f5f5;">2</div>
-    <div class="flow-content">
-      <div class="flow-title">Slack sends the command to Render via HTTP POST</div>
-      <div class="flow-desc">Slack calls the bot's /slack/commands endpoint on Render. The server wakes up (may take 30–60s on free tier cold start), then parses all the params.</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-sl">Slack Bolt SDK</span>
-        <span class="flow-tag tag-gray">Node.js 18 + TypeScript on Render</span>
-      </div>
+<div class="step">
+  <div class="step-num">2</div>
+  <div class="step-body">
+    <h3>Slack sends the command to Render via HTTP POST</h3>
+    <p>Slack calls the bot's /slack/commands endpoint on Render. The server wakes up (may take 30–60s on free tier cold start), then parses all params.</p>
+    <div class="tag-row">
+      <span class="tag tag-teal">Slack Bolt SDK</span>
+      <span class="tag tag-amber">Node.js 18 + TypeScript on Render</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#e8f5e9;">3</div>
-    <div class="flow-content">
-      <div class="flow-title">Server fetches reviews from Google Play</div>
-      <div class="flow-desc">Authenticated via Service Account JSON from Google Cloud. Fetches reviews matching the ratings and days filters directly from the API.</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-gp">Google Play API · googleapis npm</span>
-        <span class="flow-tag tag-ok">Reply speed: instant</span>
-      </div>
+<div class="step">
+  <div class="step-num">3</div>
+  <div class="step-body">
+    <h3>Server fetches reviews from Google Play</h3>
+    <p>Authenticated via Service Account JSON from Google Cloud. Fetches reviews matching the ratings and days filters directly from the API.</p>
+    <div class="tag-row">
+      <span class="tag tag-teal">Google Play API · googleapis npm</span>
+      <span class="tag tag-green">GET 200 req/hr</span>
+      <span class="tag tag-green">POST 2,000 req/day</span>
+      <span class="tag tag-teal">Reply speed: instant</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#e3f2fd;">4</div>
-    <div class="flow-content">
-      <div class="flow-title">Server fetches reviews from App Store</div>
-      <div class="flow-desc">Authenticated via short-lived JWT (RS256, 20 min expiry). Reviews fetched without territory filter — Apple does not support filter[territory] as a query param. Territory filtered client-side via attributes.territory after fetching all pages. Full pagination via links.next cursor. 180+ ISO 3166-1 codes mapped to Apple's 3-letter format (e.g. mx → MEX, us → USA).</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-as">App Store Connect API · JWT RS256</span>
-        <span class="flow-tag tag-new">Client-side territory filter</span>
-        <span class="flow-tag tag-warn">Reply speed: 2–24 hrs (Apple review queue)</span>
-      </div>
+<div class="step">
+  <div class="step-num">4</div>
+  <div class="step-body">
+    <h3>Server fetches reviews from Apple App Store</h3>
+    <p>Authenticated via short-lived JWT (RS256, 20 min expiry). Reviews fetched without territory filter — Apple does not support filter[territory] as a query param. Territory filtered client-side via attributes.territory after fetching all pages.</p>
+    <div class="tag-row">
+      <span class="tag tag-teal">App Store Connect API · JWT RS256</span>
+      <span class="tag tag-green">GET ~3,600 req/hr</span>
+      <span class="tag tag-green">POST shared GET pool</span>
+      <span class="tag tag-slate">Client-side territory filter</span>
+      <span class="tag tag-teal">Reply speed: 2–24 hrs</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#f3e5f5;">5</div>
-    <div class="flow-content">
-      <div class="flow-title">Neon DB filters out already-answered reviews</div>
-      <div class="flow-desc">Server checks the sent_replies table in Postgres. Any review that already has a sent reply is dropped. Only genuinely unanswered reviews move forward.</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-db">Neon Postgres · sent_replies table</span>
-      </div>
+<div class="step">
+  <div class="step-num">5</div>
+  <div class="step-body">
+    <h3>DB filters out already-answered reviews</h3>
+    <p>Server checks the sent_replies table in Postgres. Any review that already has a sent reply is dropped. Only genuinely unanswered reviews move forward.</p>
+    <div class="tag-row">
+      <span class="tag tag-slate">Neon Postgres · sent_replies table</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#f3e5f5;">6</div>
-    <div class="flow-content">
-      <div class="flow-title">Server saves new reviews to DB</div>
-      <div class="flow-desc">Each new review is written to the reviews table. A draft slot is created in response_drafts, ready to receive the AI response.</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-db">Neon Postgres · reviews + response_drafts tables</span>
-      </div>
+<div class="step">
+  <div class="step-num">6</div>
+  <div class="step-body">
+    <h3>Server saves new reviews to DB</h3>
+    <p>Each new review is written to the reviews table with replied=false. A draft slot is created in response_drafts, ready to receive the AI response.</p>
+    <div class="tag-row">
+      <span class="tag tag-slate">Neon Postgres · reviews + response_drafts</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#fff3e0;">7</div>
-    <div class="flow-content">
-      <div class="flow-title">Claude API generates one draft reply per review</div>
-      <div class="flow-desc">Server calls the Anthropic API with the review text plus knowledge-base.md loaded as context. Claude writes a brand-appropriate response, matched to the review's language. Reply capped at 350 characters (Google Play hard limit).</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-ai">claude-sonnet-4-5 · ~$0.01/review</span>
-        <span class="flow-tag tag-kb">knowledge-base.md</span>
-        <span class="flow-tag tag-gray">350 char limit enforced</span>
-      </div>
+<div class="step">
+  <div class="step-num">7</div>
+  <div class="step-body">
+    <h3>Claude generates one draft reply per review</h3>
+    <p>Server calls the Anthropic API with the review text plus knowledge-base.md loaded as context. Claude writes a brand-appropriate response, matched to the review's language. Reply capped at 350 characters (Google Play hard limit).</p>
+    <div class="tag-row">
+      <span class="tag tag-purple">claude-sonnet-4-5 · ~$0.01/review</span>
+      <span class="tag tag-purple">knowledge-base.md</span>
+      <span class="tag tag-slate">350 char limit enforced</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#fdf203;">8</div>
-    <div class="flow-content">
-      <div class="flow-title">Bot posts each review card to #app-reviews-ai in Slack</div>
-      <div class="flow-desc">One Slack message per review. Shows: store, rating, review text, AI draft response, and three action buttons. Slack message ID stored in slack_messages table for routing button clicks and updating the card after action.</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-sl">✅ Approve &amp; Send</span>
-        <span class="flow-tag tag-edit">✏️ Edit</span>
-        <span class="flow-tag tag-rej">❌ Reject</span>
-        <span class="flow-tag tag-db">slack_messages table</span>
-      </div>
+<div class="step">
+  <div class="step-num">8</div>
+  <div class="step-body">
+    <h3>Bot posts each review card to #app-reviews-ai</h3>
+    <p>One Slack message per review. Shows store, rating, review text, AI draft response, and action buttons. Slack message ID stored in slack_messages table for routing button clicks and updating the card after action.</p>
+    <div class="action-row">
+      <span class="action action-approve">✅ Approve &amp; Send</span>
+      <span class="action action-edit">✏️ Edit</span>
+    </div>
+    <div class="tag-row">
+      <span class="tag tag-slate">slack_messages table · msg ID stored</span>
     </div>
   </div>
+</div>
 
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#f5f5f5;">9</div>
-    <div class="flow-content">
-      <div class="flow-title">CX agent reads the draft and decides</div>
-      <div class="flow-desc">Three paths: <strong>Approve</strong> sends the AI draft as-is. <strong>Edit</strong> opens a Slack modal with the draft pre-filled — agent edits and submits. Context (review ID, store, channel) passed via private_metadata. Server enforces 350-char limit on submission. <strong>Reject</strong> archives the review with no reply sent.</div>
+<div class="step">
+  <div class="step-num">9</div>
+  <div class="step-body">
+    <h3>CX agent reads the draft and decides</h3>
+    <p><strong style="color:#9FE1CB">Approve</strong> sends the AI draft as-is. <strong style="color:#85B7EB">Edit</strong> opens a Slack modal with the draft pre-filled — agent edits and submits. Server enforces 350-char limit on submission.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">10</div>
+  <div class="step-body">
+    <h3>Render posts reply to store</h3>
+    <p>Slack sends the button click or modal submission to /slack/actions endpoint. Render looks up the review, calls the store API to submit the reply, writes to sent_replies, and updates the Slack card to ✅ Sent (by @user).</p>
+    <div class="tag-row">
+      <span class="tag tag-teal">Google Play: instant</span>
+      <span class="tag tag-teal">Apple App Store: 2–24 hrs</span>
+      <span class="tag tag-slate">sent_replies table updated</span>
+      <span class="tag tag-slate">Slack card updated via msg ID</span>
     </div>
   </div>
-
-  <div class="flow-row">
-    <div class="flow-icon" style="background:#e8f5e9;">10</div>
-    <div class="flow-content">
-      <div class="flow-title">If Approved or Edited → server posts reply to the store</div>
-      <div class="flow-desc">Slack sends the button click or modal submission to /slack/actions endpoint. Server looks up the review, calls the store API to submit the reply, writes the result to sent_replies, and updates the Slack card to ✅ Sent (by @user).</div>
-      <div class="flow-tags">
-        <span class="flow-tag tag-gp">Google Play · instant</span>
-        <span class="flow-tag tag-as">App Store · 2–24 hrs</span>
-        <span class="flow-tag tag-db">sent_replies table updated</span>
-        <span class="flow-tag tag-new">Card updated in Slack</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="flow-row" style="margin-bottom:0;">
-    <div class="flow-icon" style="background:#f5f5f5; color:#bbb; box-shadow: 0 0 0 2px #e8e8e8;">✕</div>
-    <div class="flow-content" style="padding-bottom:0;">
-      <div class="flow-title" style="color:#999;">If Rejected → review is marked skipped in DB</div>
-      <div class="flow-desc">No reply is sent to the store. The review is recorded as skipped in sent_replies so it won't surface again on the next /fetch-reviews run.</div>
-    </div>
-  </div>
-
 </div>
 
 <hr class="divider">
 
-<div class="two-col">
-
-  <div>
-    <div class="section-label">Infrastructure</div>
-    <div class="info-card">
-      <table class="info-table">
-        <thead><tr><th>Layer</th><th>Technology</th><th>Cost</th></tr></thead>
-        <tbody>
-          <tr><td>Server</td><td><span class="pill pill-black">Render</span>&nbsp; Node.js 18 + TypeScript</td><td><span class="pill pill-free">Free</span></td></tr>
-          <tr><td>Database</td><td><span class="pill pill-neon">Neon</span>&nbsp; Postgres 17 — 4 tables</td><td><span class="pill pill-free">Free</span></td></tr>
-          <tr><td>AI</td><td><span class="pill pill-orange">Anthropic</span>&nbsp; Claude Sonnet 4.5</td><td style="font-size:9px;color:#888;">~$0.01/review</td></tr>
-          <tr><td>Bot</td><td><span class="pill pill-purple">Slack Bolt</span>&nbsp; SDK</td><td><span class="pill pill-free">Free</span></td></tr>
-          <tr><td>Keep-alive</td><td><span class="pill pill-cron">cron-job.org</span>&nbsp; pings every 10 min</td><td><span class="pill pill-free">Free</span></td></tr>
-          <tr><td>Source control</td><td><span class="pill pill-gh">GitHub</span>&nbsp; push → auto deploy</td><td><span class="pill pill-free">Free</span></td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="yellow-box">
-      <div class="yb-title">knowledge-base.md — AI context file</div>
-      <div class="yb-desc">Lives on Render at project root. Loaded at server startup. Controls Claude's tone, language detection, escalation rules, and TREBEL brand voice. Edit the file and redeploy to update AI behavior without touching code.</div>
-    </div>
-    <div class="scope-box">
-      <div class="yb-title">Slack OAuth scopes</div>
-      <div class="scope-list">
-        <span class="scope-pill">chat:write</span>
-        <span class="scope-pill">chat:write.public</span>
-        <span class="scope-pill">commands</span>
-        <span class="scope-pill">reactions:write</span>
-        <span class="scope-pill scope-pill-new">channels:history</span>
-        <span class="scope-pill scope-pill-new">groups:history</span>
-        <span class="scope-pill scope-pill-new">im:history</span>
-      </div>
-      <div style="margin-top:8px;font-size:9px;color:#888;">Black = added March 2026 to support card updates after Approve / Edit / Reject</div>
-    </div>
-  </div>
-
-  <div>
-    <div class="section-label">Neon DB schema</div>
-    <div class="info-card">
-      <table class="info-table">
-        <thead><tr><th>Table</th><th>What it stores</th></tr></thead>
-        <tbody>
-          <tr><td class="mono">reviews</td><td>Raw review — store, rating, country, language, date, review ID</td></tr>
-          <tr><td class="mono">response_drafts</td><td>AI-generated reply text per review, linked to review ID</td></tr>
-          <tr><td class="mono">sent_replies</td><td>What was sent, when, by which Slack user, and whether it was edited (used for dedup)</td></tr>
-          <tr><td class="mono">slack_messages</td><td>Slack message ID per review for button routing and card updates</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="section-label" style="margin-top:16px;">Source APIs</div>
-    <div class="info-card">
-      <table class="info-table">
-        <thead><tr><th>Store</th><th>Auth method</th><th>Territory filter</th><th>Reply speed</th></tr></thead>
-        <tbody>
-          <tr><td><span class="pill pill-green">Google Play</span></td><td style="font-size:10px;">Service account JSON</td><td style="font-size:10px;">API-level (country param)</td><td><span class="pill pill-free">Instant</span></td></tr>
-          <tr><td><span class="pill pill-blue">App Store</span></td><td style="font-size:10px;">JWT RS256 · 20 min expiry</td><td style="font-size:10px;">Client-side via attributes.territory</td><td><span class="pill pill-warn">2–24 hrs</span></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="section-label" style="margin-top:16px;">Key URLs</div>
-    <div class="info-card">
-      <table class="info-table">
-        <thead><tr><th>Resource</th><th>URL</th></tr></thead>
-        <tbody>
-          <tr><td>Live bot</td><td style="font-family:'Courier New',monospace;font-size:9px;">trebel-review-bot.onrender.com</td></tr>
-          <tr><td>GitHub</td><td style="font-family:'Courier New',monospace;font-size:9px;">github.com/remy-boop/trebel-review-bot</td></tr>
-          <tr><td>Slack app</td><td style="font-family:'Courier New',monospace;font-size:9px;">api.slack.com/apps/A0ANKP5BWCW</td></tr>
-          <tr><td>Slack channel</td><td style="font-size:10px;">#app-reviews-ai · M&amp;M Media</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
+<!-- INFRASTRUCTURE -->
+<div class="section-label">Infrastructure</div>
+<div class="infra-grid">
+  <div class="infra-card"><div class="layer">Server</div><div class="tech">Render</div><div class="detail">Node.js 18 + TypeScript</div><span class="cost cost-free">Free</span></div>
+  <div class="infra-card"><div class="layer">Database</div><div class="tech">Neon</div><div class="detail">Postgres 17 · 4 tables</div><span class="cost cost-free">Free</span></div>
+  <div class="infra-card"><div class="layer">AI</div><div class="tech">Anthropic</div><div class="detail">Claude Sonnet 4.5</div><span class="cost cost-paid">~$0.01/review</span></div>
+  <div class="infra-card"><div class="layer">Bot</div><div class="tech">Slack Bolt SDK</div><div class="detail">Webhook + actions</div><span class="cost cost-free">Free</span></div>
+  <div class="infra-card"><div class="layer">Keep-alive</div><div class="tech">cron-job.org</div><div class="detail">Pings every 10 min</div><span class="cost cost-free">Free</span></div>
+  <div class="infra-card"><div class="layer">Source control</div><div class="tech">GitHub</div><div class="detail">Push → auto deploy</div><span class="cost cost-free">Free</span></div>
 </div>
 
-<div class="footer">
-  <div class="footer-left">Last updated March 2026 · Both stores live end to end</div>
-  <div class="footer-right">TREBEL</div>
+<div class="kb-block">
+  <strong>knowledge-base.md — AI context file</strong>
+  Lives on Render at project root. Loaded at server startup. Controls Claude's tone, language detection, escalation rules, and TREBEL brand voice. Edit the file and redeploy to update AI behavior without touching code.
 </div>
+
+<!-- SLACK SCOPES -->
+<div class="section-label">Slack OAuth scopes</div>
+<div class="scope-section">
+  <div class="scope-grid">
+    <span class="scope-pill">chat:write</span>
+    <span class="scope-pill">chat:write.public</span>
+    <span class="scope-pill">commands</span>
+    <span class="scope-pill">reactions:write</span>
+    <span class="scope-pill new">channels:history</span>
+    <span class="scope-pill new">groups:history</span>
+    <span class="scope-pill new">im:history</span>
+  </div>
+  <p class="scope-note"><span>■</span> Added March 2026 to support card updates after Approve / Edit</p>
+</div>
+
+<!-- DB SCHEMA -->
+<div class="section-label">Neon DB schema</div>
+<div class="db-section">
+  <table class="db-table">
+    <thead><tr><th>Table</th><th>What it stores</th></tr></thead>
+    <tbody>
+      <tr><td>reviews</td><td>Raw review — store, rating, country, language, date, review ID, replied status, sent_response</td></tr>
+      <tr><td>response_drafts</td><td>AI-generated reply text per review, linked to review ID</td></tr>
+      <tr><td>slack_messages</td><td>Slack message ID per review for button routing and card updates</td></tr>
+      <tr><td>sent_replies</td><td>What was sent, when, by which Slack user, whether it was edited — used for dedup on next fetch</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SOURCE APIs -->
+<div class="section-label">Source APIs</div>
+<table class="api-table">
+  <thead><tr><th>Store</th><th>Auth</th><th>Territory filter</th><th>GET limit</th><th>Reply speed</th></tr></thead>
+  <tbody>
+    <tr><td>Google Play</td><td>Service account JSON</td><td>API-level (country param)</td><td>200 req/hr</td><td>Instant</td></tr>
+    <tr><td>Apple App Store</td><td>JWT RS256 · 20 min expiry</td><td>Client-side via attributes.territory</td><td>~3,600 req/hr</td><td>2–24 hrs</td></tr>
+  </tbody>
+</table>
+
+<!-- KEY URLS -->
+<div class="section-label">Key URLs</div>
+<div class="url-grid">
+  <div class="url-row"><span>Live bot</span><a href="https://trebel-review-bot.onrender.com" target="_blank">trebel-review-bot.onrender.com</a></div>
+  <div class="url-row"><span>GitHub</span><a href="https://github.com/remy-boop/trebel-review-bot" target="_blank">github.com/remy-boop/trebel-review-bot</a></div>
+  <div class="url-row"><span>Slack app</span><a href="https://api.slack.com/apps/A0ANKP5BWCW" target="_blank">api.slack.com/apps/A0ANKP5BWCW</a></div>
+  <div class="url-row"><span>Slack channel</span><span style="color:#9FE1CB;font-weight:600">#app-reviews-ai · M&amp;M Media</span></div>
+</div>
+
+<footer class="page-footer">
+  <span>Last updated April 2026 · Both stores live end to end</span>
+  <strong>TREBEL</strong>
+</footer>
 
 </body>
 </html>
